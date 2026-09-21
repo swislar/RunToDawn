@@ -104,9 +104,9 @@ function setupRouteCanvas(routes, totalAll) {
   const medX = medOf(centroids.map(c => c.x)), medY = medOf(centroids.map(c => c.y));
   const distFromMed = centroids.map(c => Math.hypot(c.x - medX, c.y - medY));
   const sortedDist = distFromMed.slice().sort((a, b) => a - b);
-  // the 80th-percentile distance, with a floor so a genuinely tight cluster
-  // (everyone within a km of each other) doesn't get trimmed to nothing
-  const cutoff = Math.max(1500, sortedDist.length ? sortedDist[Math.floor(sortedDist.length * 0.8)] : Infinity);
+  // the 85th-percentile distance, with a higher floor (3km) so local runs
+  // across town aren't prematurely excluded as outliers
+  const cutoff = Math.max(3000, sortedDist.length ? sortedDist[Math.floor(sortedDist.length * 0.85)] : Infinity);
   const clusterIdx = world.length >= 6 ? distFromMed.map((d, i) => d <= cutoff ? i : -1).filter(i => i >= 0) : world.map((_, i) => i);
   const clusterSet = clusterIdx.length >= Math.max(3, world.length * 0.3) ? new Set(clusterIdx) : null;
 
@@ -134,7 +134,7 @@ function setupRouteCanvas(routes, totalAll) {
     canvas.style.width = width + 'px'; canvas.style.height = height + 'px';
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
     routeView.viewW = width; routeView.viewH = height;
-    routeView.base = Math.min((width * 0.88) / bw, (height * 0.88) / bh);
+    routeView.base = Math.min((width * 0.68) / bw, (height * 0.68) / bh);
     state.pan.x = 0; state.pan.y = 0; state.zoom = 1;
     draw();
   }
@@ -151,18 +151,17 @@ function setupRouteCanvas(routes, totalAll) {
       const scale = routeView.base * state.zoom;
       const ox = w / 2 + state.pan.x, oy = hh / 2 + state.pan.y;
 
-      /* A fixed, always-visible per-stroke alpha \u2014 NOT scaled down as route
-         count grows. The previous version shrank alpha toward a 5% floor for
-         anyone with more than about 20 routes, meant to stop a huge history
-         from oversaturating into a solid blob. In practice it meant almost
-         every real user's SINGLE pass over a street rendered too faint to
-         see at all, which is a far worse failure than mild oversaturation
-         ever was. A street run once should be clearly visible; one run
-         fifty times should go bold through repeated compositing on top of
-         that, not through a lower starting point. */
-      ctx.globalAlpha = 0.16;
+      /* Dynamic opacity with an increased range: a high floor (0.30) ensures
+         even large multi-year histories have bold, punchy single passes without fading,
+         while small route sets scale up to 0.85 for immediate vibrancy.
+         A shadow blur adds a warm, luminous glow around each route track. */
+      const MIN_ALPHA = 0.28, MAX_ALPHA = 0.82;
+      const count = Math.max(1, world.length);
+      ctx.globalAlpha = clamp(MAX_ALPHA / Math.pow(count, 0.26), MIN_ALPHA, MAX_ALPHA);
       ctx.strokeStyle = p.clay || '#A8412C';
-      ctx.lineWidth = clamp(1.7 / Math.sqrt(state.zoom), 0.9, 3.2);
+      ctx.shadowColor = p.clay || '#E0705A';
+      ctx.shadowBlur = clamp(2.2 / Math.sqrt(state.zoom), 1.0, 3.5);
+      ctx.lineWidth = clamp(1.1 / Math.sqrt(state.zoom), 0.6, 1.6);
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
       // canvas clips off-screen coordinates on its own; no need to fragment
@@ -177,6 +176,7 @@ function setupRouteCanvas(routes, totalAll) {
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
     } catch (e) {
       // A silent failure here used to look identical to "nothing to draw" \u2014
       // paint the background at least, and say plainly that something broke
@@ -195,7 +195,7 @@ function setupRouteCanvas(routes, totalAll) {
   routeView.draw = draw;
   routeView.zoomBy = (f, atX, atY) => {
     const prev = state.zoom;
-    state.zoom = clamp(state.zoom * f, 0.4, 40);
+    state.zoom = clamp(state.zoom * f, 0.2, 40);
     if (atX != null) {
       const k = state.zoom / prev;
       state.pan.x = atX - (atX - state.pan.x) * k;
