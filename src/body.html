@@ -1,0 +1,124 @@
+<div class="shell">
+  <aside class="rail">
+    <div class="brand">
+      <b>Run<i>To</i>Dawn</b>
+      <span>Apple Health, read like a coach reads it</span>
+    </div>
+    <span class="lanes" aria-hidden="true"></span>
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
+    <div class="railfoot">
+      <div class="seg" role="group" aria-label="Units">
+        <button type="button" data-unit="km" aria-pressed="true">km</button>
+        <button type="button" data-unit="mi" aria-pressed="false">mi</button>
+      </div>
+      <button class="btn sm ghost" id="themeBtn" type="button" title="Switch theme">Theme</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <b>Run<i>To</i>Dawn</b>
+      <div class="row">
+        <div class="seg" role="group" aria-label="Units">
+          <button type="button" data-unit="km" aria-pressed="true">km</button>
+          <button type="button" data-unit="mi" aria-pressed="false">mi</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+
+      <!-- ============ IMPORT ============ -->
+      <section class="view on" id="v-import">
+        <div class="sechead">
+          <h1>Bring in your runs</h1>
+          <p class="sub">Your export never leaves this device. It is parsed in the browser, kept in your own
+          browser storage, and can be wiped from the Data tab at any time.</p>
+        </div>
+
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose your Apple Health export file">
+          <h3>Drop <span class="num">export.zip</span> or <span class="num">export.xml</span> here</h3>
+          <p>Or press to choose a file. A few years of running is usually a 100–600&nbsp;MB zip and takes under a minute.</p>
+          <input type="file" id="file" accept=".zip,.xml,application/zip,text/xml" hidden>
+        </div>
+
+        <div id="importStatus" style="margin-top:14px; display:none">
+          <div class="panel"><div class="pb">
+            <div class="row" style="justify-content:space-between; margin-bottom:8px">
+              <strong id="impMsg">Reading…</strong>
+              <span class="tiny num" id="impPct">0%</span>
+            </div>
+            <div class="prog"><i id="impBar"></i></div>
+            <div class="tiny" id="impDetail" style="margin-top:8px"></div>
+          </div></div>
+        </div>
+
+        <div class="grid g2" style="margin-top:22px">
+          <div class="panel"><div class="ph"><h3>Getting the file out of the Health app</h3></div>
+            <div class="pb">
+              <ol style="margin:0; padding-left:19px; font-size:13.5px; line-height:1.7">
+                <li>Open <strong>Health</strong> on iPhone and tap your profile picture, top right.</li>
+                <li>Scroll down and tap <strong>Export All Health Data</strong>, then <strong>Export</strong>.</li>
+                <li>The export takes a few minutes to build. Save it to Files, AirDrop it, or email it to yourself.</li>
+                <li>You get <span class="num">export.zip</span>. Bring it here as-is, or unzip it and use
+                    <span class="num">apple_health_export/export.xml</span>.</li>
+              </ol>
+              <div class="note" style="margin-top:12px">On a big export, handing over the unzipped
+                <span class="num">export.xml</span> is faster and uses less memory than the zip.</div>
+            </div>
+          </div>
+
+          <div class="panel"><div class="ph"><h3>What gets read</h3></div>
+            <div class="pb">
+              <p class="tiny" style="margin-bottom:10px">Only what a running analysis needs. Everything else in the export is skipped.</p>
+              <dl class="kv" style="font-size:13px">
+                <dt>Workouts</dt><dd style="font-family:var(--f-ui)">Running, treadmill, walking, cycling — date, distance, duration, heart rate, elevation, source</dd>
+                <dt>Distance samples</dt><dd style="font-family:var(--f-ui)">Used to rebuild splits inside each run, so best efforts are real efforts rather than averages</dd>
+                <dt>Resting HR</dt><dd style="font-family:var(--f-ui)">Trend only</dd>
+                <dt>Body mass</dt><dd style="font-family:var(--f-ui)">Trend only</dd>
+              </dl>
+              <label class="chk" style="margin-top:14px">
+                <input type="checkbox" id="optSplits" checked>
+                <span>Rebuild in-run splits from distance samples. More accurate race predictions, slower import, more memory. Turn off if the import struggles.</span>
+              </label>
+              <label class="chk">
+                <input type="checkbox" id="optDedupe" checked>
+                <span>Merge duplicate workouts recorded by more than one app or device.</span>
+              </label>
+              <label class="chk">
+                <input type="checkbox" id="optRoutes" checked>
+                <span>Build a route heatmap from your GPS tracks. Needs the <strong>zip</strong> file, not a bare export.xml \u2014 routes live in <code>workout-routes/</code> inside it, and this reads every track, so it's the slowest part of a large import.</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div id="importDone" style="display:none; margin-top:22px"></div>
+      </section>
+
+      <!-- ============ OVERVIEW ============ -->
+      <section class="view" id="v-overview"></section>
+
+      <!-- ============ VOLUME ============ -->
+      <section class="view" id="v-volume"></section>
+
+      <!-- ============ ROUTES ============ -->
+      <section class="view" id="v-routes"></section>
+
+      <!-- ============ PERFORMANCE ============ -->
+      <section class="view" id="v-perf"></section>
+
+      <!-- ============ COACH ============ -->
+      <section class="view" id="v-coach"></section>
+
+      <!-- ============ INSIGHTS ============ -->
+      <section class="view" id="v-insights"></section>
+
+      <!-- ============ DATA ============ -->
+      <section class="view" id="v-data"></section>
+
+    </div>
+  </div>
+</div>
+
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>

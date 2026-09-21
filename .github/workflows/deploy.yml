@@ -1,0 +1,75 @@
+name: Deploy to GitHub Pages
+
+# Builds and deploys RunToDawn as a static site whenever main changes, and
+# lets you trigger it by hand from the Actions tab. The test suite is a real
+# gate here: a broken classifier or a broken VDOT model fails the workflow
+# before anything goes live.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment in flight at a time; a newer push cancels a running one
+# rather than queuing behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the single-file bundle
+        run: npm run build
+
+      - name: Stage the site
+        # Only what actually needs to be served: the dev entry point, its
+        # split source files, and the bundled single-file build as a second,
+        # optional entry point at /dist/runtodawn.html. Nothing from test/,
+        # node_modules/, or the repo's own tooling goes near the public site.
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r src _site/src
+          cp -r dist _site/dist
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

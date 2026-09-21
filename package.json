@@ -1,0 +1,27 @@
+{
+  "name": "runtodawn",
+  "version": "1.0.0",
+  "description": "Apple Health running analytics, race predictions, and a training-plan coach \u2014 runs entirely in the browser.",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npx --yes serve -l 8080 .",
+    "build": "bash build.sh",
+    "test": "npm run test:model && npm run test:classify && npm run test:dom && npm run test:routes",
+    "test:model": "node test/model.js",
+    "test:classify": "node test/gen.js && node test/classify.js",
+    "test:dom": "node test/gen.js && node test/dom.js",
+    "test:routes": "node test/gen.js && node test/routes.js",
+    "test:pixels": "node test/routes_pixels.js",
+    "test:run": "node test/gen.js && node test/run.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.0",
+    "jszip": "^3.10.1"
+  },
+  "optionalDependencies": {
+    "canvas": "^3.2.3"
+  }
+}
