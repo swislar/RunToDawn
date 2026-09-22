@@ -1,16 +1,26 @@
 /* ===================== 35 · route heatmap =====================
-   Every GPS track drawn on top of every other one. No map tiles — the
-   published page cannot load them — so the streets you actually run draw
-   themselves, which is closer to the real Strava heatmap than a tile
-   basemap would suggest anyway. Overlap is what makes a street read as
-   "yours": each pass is a faint stroke laid down with normal alpha
-   compositing, so a road run once stays faint and a road run fifty times
-   converges towards solid. No additive/'lighter' blending — that washes
-   out to white on a light page; plain alpha stacking darkens correctly on
-   both themes.
+   Every GPS track drawn on top of every other one over a minimal,
+   high-contrast monochrome canvas basemap (World Light Gray in light mode,
+   World Dark Gray in dark mode) with a CSS grayscale filter for guaranteed
+   pure black-and-white street context without needing an API key.
    ========================================================================= */
 
 let routeView = null;   // { routes, canvas, ctx, dpr, base:{cx,cy,scale}, pan:{x,y}, zoom, wrap }
+
+function isDarkTheme() {
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t === 'dark') return true;
+  if (t === 'light') return false;
+  return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function mercatorProject(lat, lon) {
+  const sin = Math.sin((lat * Math.PI) / 180);
+  const clampedSin = Math.max(-0.9999, Math.min(0.9999, sin));
+  const x = (lon + 180) / 360;
+  const y = 0.5 - Math.log((1 + clampedSin) / (1 - clampedSin)) / (4 * Math.PI);
+  return [x, y];
+}
 
 function renderRoutes() {
   const v = $('#v-routes');
@@ -30,6 +40,7 @@ function renderRoutes() {
 
   const st = loadSettings();
   const period = st.routePeriod || 'all';
+  const showMap = st.routeMap !== false;
 
   let h = '<div class="sechead"><h1>Routes</h1>' +
     '<p class="sub">Every GPS track laid on top of the others. A street you run once stays faint; one you return to again and again goes bold \u2014 that is overlap, not a map.</p></div>';
@@ -39,11 +50,19 @@ function renderRoutes() {
     [['all', 'All time'], ['1y', 'Last year'], ['90d', 'Last 90 days']]
       .map(([k, l]) => '<button type="button" data-period="' + k + '" aria-pressed="' + (period === k) + '">' + l + '</button>').join('') +
     '</div></div><div class="pb">' +
-    '<div class="routewrap" id="rtWrap"><canvas id="rtCanvas"></canvas>' +
-    '<div class="routezoom"><button type="button" id="rtIn" aria-label="Zoom in">+</button><button type="button" id="rtOut" aria-label="Zoom out">\u2212</button><button type="button" id="rtFit" aria-label="Fit to routes">\u21bb</button></div>' +
+    '<div class="routewrap" id="rtWrap">' +
+    '<div class="routemap" id="rtMap" aria-hidden="true"><div class="routemap-pane" id="rtMapPane"></div></div>' +
+    '<canvas id="rtCanvas"></canvas>' +
+    '<div class="routezoom">' +
+    '<button type="button" id="rtIn" aria-label="Zoom in">+</button>' +
+    '<button type="button" id="rtOut" aria-label="Zoom out">\u2212</button>' +
+    '<button type="button" id="rtFit" aria-label="Fit to routes">\u21bb</button>' +
+    '<button type="button" id="rtMapToggle" aria-label="Toggle basemap" title="Toggle basemap" aria-pressed="' + showMap + '">\ud83d\uddfa</button>' +
+    '</div>' +
+    '<div class="routeattr" id="rtAttr" aria-label="Map attribution">Tiles &copy;&nbsp;<a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a>, &copy;&nbsp;<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></div>' +
     '</div>' +
     '<div class="routebar" id="rtStats"></div>' +
-    '<p class="tiny" style="margin-top:8px">Drag to pan, scroll or pinch to zoom. No street map underneath \u2014 the routes are the map.' +
+    '<p class="tiny" style="margin-top:8px">Drag to pan, scroll or pinch to zoom. High-contrast street canvas underneath \u2014 no API key needed.' +
     (App.meta && App.meta.routesCapped ? ' Capped at the ' + App.meta.routesUsed + ' most recent routes of ' + App.meta.routesFound + ' found.' : '') + '</p>' +
     '</div></div>';
 
@@ -71,16 +90,21 @@ function setupRouteCanvas(routes, totalAll) {
     return;
   }
 
-  /* ---- project lat/lon to a flat, roughly-metric plane ------------------ */
-  let latSum = 0, lonSum = 0, n = 0;
-  for (const r of routes) { for (let i = 0; i < r.pts.length; i += 2) { latSum += r.pts[i]; lonSum += r.pts[i + 1]; n++; } }
-  const lat0 = latSum / n, lon0 = lonSum / n;
-  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+  const st = loadSettings();
+  let showMap = st.routeMap !== false;
+
+  /* ---- project lat/lon to standard Web Mercator (EPSG:3857) normalized [0, 1] -- */
+  let latSum = 0, n = 0;
+  for (const r of routes) { for (let i = 0; i < r.pts.length; i += 2) { latSum += r.pts[i]; n++; } }
+  const lat0 = latSum / n;
+  const C = 40075016.686; // Earth circumference in meters
+  const mPerCoord = C * Math.cos((lat0 * Math.PI) / 180);
 
   const world = routes.map(r => {
     const w = new Float32Array(r.pts.length);
     for (let i = 0; i < r.pts.length; i += 2) {
-      w[i] = (r.pts[i + 1] - lon0) * kx; w[i + 1] = -(r.pts[i] - lat0) * ky;
+      const [x, y] = mercatorProject(r.pts[i], r.pts[i + 1]);
+      w[i] = x; w[i + 1] = y;
     }
     return w;
   });
@@ -89,12 +113,10 @@ function setupRouteCanvas(routes, totalAll) {
      A handful of one-off routes \u2014 a race in another city, a run on holiday
      \u2014 can sit tens of kilometres from everything else. Fitting the view to
      their combined bounding box shrinks the routes someone actually cares
-     about (their regular loops) down to a few faint pixels, which is a
-     second, independent way this feature could look "broken" even once the
-     opacity is fixed. So the fit is built from each route's OWN centroid:
-     find the median centroid, and use only routes within a reasonable
-     distance of it. Distant one-offs are still drawn \u2014 pan out and they're
-     there \u2014 they just do not get to decide the default zoom level. */
+     about (their regular loops) down to a few faint pixels. So the fit is built
+     from each route's OWN centroid: find the median centroid, and use only routes
+     within a reasonable distance of it. Distant one-offs are still drawn \u2014 pan out
+     and they're there \u2014 they just do not get to decide the default zoom level. */
   const centroids = world.map(w => {
     let sx = 0, sy = 0, m = w.length / 2;
     for (let i = 0; i < w.length; i += 2) { sx += w[i]; sy += w[i + 1]; }
@@ -102,7 +124,7 @@ function setupRouteCanvas(routes, totalAll) {
   });
   const medOf = arr => { const s = arr.slice().sort((a, b) => a - b); return s[s.length >> 1]; };
   const medX = medOf(centroids.map(c => c.x)), medY = medOf(centroids.map(c => c.y));
-  const distFromMed = centroids.map(c => Math.hypot(c.x - medX, c.y - medY));
+  const distFromMed = centroids.map(c => Math.hypot((c.x - medX) * mPerCoord, (c.y - medY) * mPerCoord));
   const sortedDist = distFromMed.slice().sort((a, b) => a - b);
   // the 85th-percentile distance, with a higher floor (3km) so local runs
   // across town aren't prematurely excluded as outliers
@@ -119,7 +141,8 @@ function setupRouteCanvas(routes, totalAll) {
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
   });
-  const bw = Math.max(80, maxX - minX), bh = Math.max(80, maxY - minY);
+  const minSpan = 80 / C;
+  const bw = Math.max(minSpan, maxX - minX), bh = Math.max(minSpan, maxY - minY);
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const trimmed = clusterSet ? world.length - clusterSet.size : 0;
 
@@ -127,7 +150,75 @@ function setupRouteCanvas(routes, totalAll) {
   const p = palette();
 
   const state = { pan: { x: 0, y: 0 }, zoom: 1 };
+  const tilePool = new Map();
   routeView = { routes: world, wrap, canvas, dpr, cx, cy, bw, bh, state, lenKm: sum(routes.map(r => r.len || 0)) / 1000, trimmed };
+
+  function updateTiles(w, hh, scale, ox, oy) {
+    const mapEl = $('#rtMap'), pane = $('#rtMapPane');
+    if (!mapEl || !pane || typeof Image === 'undefined') return;
+
+    if (!showMap) {
+      mapEl.classList.add('off');
+      const attr = $('#rtAttr');
+      if (attr) attr.classList.add('off');
+      return;
+    }
+    mapEl.classList.remove('off');
+    const attr = $('#rtAttr');
+    if (attr) attr.classList.remove('off');
+
+    const dark = isDarkTheme();
+    const service = dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base';
+
+    const Z = Math.log2(scale / 256);
+    const z = clamp(Math.round(Z), 0, 18);
+    const nTiles = Math.pow(2, z);
+    const tileSize = (1 / nTiles) * scale;
+
+    const invScale = 1 / scale;
+    const xMin = cx - ox * invScale, xMax = cx + (w - ox) * invScale;
+    const yMin = cy - oy * invScale, yMax = cy + (hh - oy) * invScale;
+
+    const txMin = Math.floor(xMin * nTiles);
+    const txMax = Math.floor(xMax * nTiles);
+    const tyMin = Math.max(0, Math.floor(yMin * nTiles));
+    const tyMax = Math.min(nTiles - 1, Math.floor(yMax * nTiles));
+
+    const visibleKeys = new Set();
+    for (let ty = tyMin; ty <= tyMax; ty++) {
+      for (let tx = txMin; tx <= txMax; tx++) {
+        const wrappedTx = ((tx % nTiles) + nTiles) % nTiles;
+        const key = service + '-' + z + '-' + wrappedTx + '-' + ty;
+        visibleKeys.add(key);
+
+        const left = Math.round((tx / nTiles - cx) * scale + ox);
+        const top = Math.round((ty / nTiles - cy) * scale + oy);
+        const sz = Math.ceil(tileSize);
+
+        let img = tilePool.get(key);
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'routemap-tile';
+          img.alt = '';
+          img.decoding = 'async';
+          img.src = 'https://services.arcgisonline.com/arcgis/rest/services/Canvas/' + service + '/MapServer/tile/' + z + '/' + ty + '/' + wrappedTx;
+          pane.appendChild(img);
+          tilePool.set(key, img);
+        }
+        img.style.left = left + 'px';
+        img.style.top = top + 'px';
+        img.style.width = sz + 'px';
+        img.style.height = sz + 'px';
+      }
+    }
+
+    for (const [k, img] of tilePool.entries()) {
+      if (!visibleKeys.has(k)) {
+        img.remove();
+        tilePool.delete(k);
+      }
+    }
+  }
 
   function fit() {
     const width = wrap.clientWidth || 320, height = Math.max(320, Math.min(560, width * 0.72));
@@ -145,15 +236,22 @@ function setupRouteCanvas(routes, totalAll) {
       const { viewW: w, viewH: hh } = routeView;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, hh);
-      ctx.fillStyle = p.surf;
-      ctx.fillRect(0, 0, w, hh);
+
+      const mapEl = $('#rtMap');
+      const isMapActive = showMap && Boolean(mapEl) && typeof Image !== 'undefined';
+      if (!isMapActive) {
+        ctx.fillStyle = p.surf;
+        ctx.fillRect(0, 0, w, hh);
+      }
 
       const scale = routeView.base * state.zoom;
       const ox = w / 2 + state.pan.x, oy = hh / 2 + state.pan.y;
 
-      /* Dynamic opacity with an increased range: a high floor (0.30) ensures
+      updateTiles(w, hh, scale, ox, oy);
+
+      /* Dynamic opacity with an increased range: a high floor (0.28) ensures
          even large multi-year histories have bold, punchy single passes without fading,
-         while small route sets scale up to 0.85 for immediate vibrancy.
+         while small route sets scale up to 0.82 for immediate vibrancy.
          A shadow blur adds a warm, luminous glow around each route track. */
       const MIN_ALPHA = 0.28, MAX_ALPHA = 0.82;
       const count = Math.max(1, world.length);
@@ -236,6 +334,16 @@ function setupRouteCanvas(routes, totalAll) {
   $('#rtIn').addEventListener('click', () => routeView.zoomBy(1.4));
   $('#rtOut').addEventListener('click', () => routeView.zoomBy(1 / 1.4));
   $('#rtFit').addEventListener('click', fit);
+
+  const mapToggle = $('#rtMapToggle');
+  if (mapToggle) {
+    mapToggle.addEventListener('click', () => {
+      showMap = !showMap;
+      saveSettings({ routeMap: showMap });
+      mapToggle.setAttribute('aria-pressed', String(showMap));
+      draw();
+    });
+  }
 
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(() => fit());
