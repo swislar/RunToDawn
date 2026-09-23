@@ -68,6 +68,16 @@ for(const f of ['00-util','10-parse','20-metrics','25-classify','40-coach','60-i
     if(ramps.length) console.log('   !! ramp above 11%/wk at',ramps.map(w=>w.i+1).join(','));
     const empty=plan.weeks.filter(w=>w.days.filter(d=>d.kind!=='rest').length===0);
     if(empty.length) console.log('   !! empty weeks',empty.length);
+    // Regression check for a real bug found in review: Build-phase weeks
+    // decide nQ=2 (two quality sessions) for HM/FM at 5+ days/week, but an
+    // earlier version silently relabelled the second one 'easy', so the
+    // plan delivered half the quality work it claimed to. Every non-taper,
+    // non-race Build week must actually contain 2 'quality'-kind days.
+    if (race !== '10K') {
+      const buildWeeks = plan.weeks.filter(w => w.phase === 'Build' && !w.isRaceWeek);
+      const short = buildWeeks.filter(w => w.days.filter(d => d.kind === 'quality').length < 2);
+      if (short.length) console.log('   !! Build weeks with <2 real quality sessions:', short.map(w => w.i + 1).join(','));
+    }
   }
   const plan=buildPlan({race:'FM',raceDate,days:5,longDay:5,level:'solid',cross:true},fit,App.train);
   console.log('\nWeek 1:'); plan.weeks[0].days.forEach(d=>console.log('  ',DOW[d.dow].padEnd(4),(d.m?(d.m/1000).toFixed(1)+'km':'   -').padStart(8),d.title,'|',d.detail.slice(0,70)));

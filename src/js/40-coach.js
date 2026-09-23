@@ -450,7 +450,7 @@ function qualitySessions(ctx, nQ) {
       q('Sharpening', wu + '. 6 × 1000 m at ' + I + ' with 2:30 jog. Lifts the ceiling so half pace feels cheaper.', repsM(6, 1000, Ip, 150))
     ];
     out.push(phase === 'Peak' ? b[rot] : a[rot]);
-    if (nQ > 1) out.push(Object.assign(q('Easy with strides', 'Easy running with 8 × 20 s strides. The second slot in an endurance block is about frequency, not more pain.', null), { kind: 'easy' }));
+    if (nQ > 1) out.push(q('Strides and hills', wu + '. 10 × 20 s strides plus 6 × 30 s hills. A second, deliberately gentler quality day \u2014 turnover and strength, not a second hard threshold session.', reps(10, 20, Rp, 40) + reps(6, 30, Ip, 60)));
     return out;
   }
 
@@ -466,7 +466,7 @@ function qualitySessions(ctx, nQ) {
     q('Race rehearsal', wu + '. 16 km at ' + M + ' — same shoes, same gels, same breakfast as race day.', 16000)
   ];
   out.push(phase === 'Peak' ? b[rot] : a[rot]);
-  if (nQ > 1) out.push(Object.assign(q('Easy with strides', 'Easy running with 8 × 20 s strides, on tired legs by design.', null), { kind: 'easy' }));
+  if (nQ > 1) out.push(q('Strides and hills', wu + '. 10 × 20 s strides plus 6 × 30 s hills. A second, deliberately gentler quality day \u2014 turnover and strength, not a second hard threshold session.', reps(10, 20, Rp, 40) + reps(6, 30, Ip, 60)));
   return out;
 }
 
