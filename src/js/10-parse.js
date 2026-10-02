@@ -613,6 +613,7 @@ async function computeBestEfforts(runs, smp, best, onProg) {
     if (total < 900) continue;
     withSplits++;
     r.splitTotal = Math.round(total);
+    const runPace = (r.dur && r.m) ? (r.dur / (r.m / 1000)) : ((t[t.length - 1] - t[0]) / 1000 / (total / 1000));
 
     for (const tg of TARGETS) {
       if (total < tg.m) break;
@@ -624,7 +625,10 @@ async function computeBestEfforts(runs, smp, best, onProg) {
         if (sec > 0 && sec < bestSec) bestSec = sec;
       }
       if (!isFinite(bestSec)) continue;
-      if (bestSec / (tg.m / 1000) < 130) continue;   // faster than 2:10/km — bad data
+      const segPace = bestSec / (tg.m / 1000);
+      if (segPace < wrPaceFloor(tg.m)) continue;   // faster than WR pace at this distance
+      // Segment consistency: a split faster than 65% of the host run's pace is a GPS jump/glitch
+      if (runPace > 0 && segPace < runPace * 0.65) continue;
       const cur = best[tg.m];
       if (!cur || bestSec < cur.sec) best[tg.m] = { sec: bestSec, date: r.start, runId: r.id, method: 'split', indoor: r.indoor };
       r.pb = r.pb || {};
@@ -644,10 +648,11 @@ function fillBestEffortsFromAverages(runs, best) {
     if (best[tg.m] && best[tg.m].method === 'split') continue;
     let bestSec = Infinity, hit = null;
     for (const r of runs) {
+      if (r.kind === 'walk' || r.bogus) continue;
       if (!r.m || !r.dur) continue;
       if (r.m < tg.m * 0.97 || r.m > tg.m * 1.12) continue;
       const sec = r.dur * (tg.m / r.m);
-      if (sec / (tg.m / 1000) < 130) continue;
+      if (sec / (tg.m / 1000) < wrPaceFloor(tg.m)) continue;
       if (sec < bestSec) { bestSec = sec; hit = r; }
     }
     if (hit) {

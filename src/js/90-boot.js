@@ -12,7 +12,7 @@ function renderData() {
   }
 
   h += '<div class="grid g4">' +
-    statTile('Runs', App.train.length, '', (App.walks.length ? App.walks.length + ' walk-like set aside · ' : '') + App.other.length + ' other workouts') +
+    statTile('Runs', App.train.length, '', (App.walks.length ? App.walks.length + ' set aside' + (App.bogus && App.bogus.length ? ' (incl. ' + App.bogus.length + ' pace anomal' + (App.bogus.length === 1 ? 'y' : 'ies') + ')' : '') + ' · ' : '') + App.other.length + ' other workouts') +
     statTile('Span', App.runs.length ? Math.round((App.runs[App.runs.length - 1].start - App.runs[0].start) / DAY / 30.4) : 0, 'months',
       App.runs.length ? fmtDate(App.runs[0].start) + ' → ' + fmtDate(App.runs[App.runs.length - 1].start) : '') +
     statTile('Runs with splits', m.runsWithSplits || 0, '', (m.samples || 0).toLocaleString() + ' distance samples read') +
@@ -60,7 +60,7 @@ function renderData() {
     }
     await idbClear();
     try { localStorage.removeItem(LS); } catch (e) { }
-    App.runs = []; App.train = []; App.walks = []; App.other = []; App.best = {}; App.meta = {}; App.fit = null; App.plan = null; App.ready = false; App.routes = [];
+    App.runs = []; App.train = []; App.walks = []; App.bogus = []; App.other = []; App.best = {}; App.meta = {}; App.fit = null; App.plan = null; App.ready = false; App.routes = [];
     destroyCharts();
     renderAll(); go('import');
   });
@@ -178,9 +178,128 @@ function recompute() {
   App.cls = classifyRuns(App.runs);
   App.walks = App.runs.filter(r => r.kind === 'walk');
   App.train = App.runs.filter(r => r.kind !== 'walk');          // running only
+  App.bogus = App.walks.filter(r => r.bogus);
+
+  // Compute reference paces across the athlete's training history
+  const normalRuns = App.train.filter(r => r.gap && r.m >= 2000);
+  const globalRef = normalRuns.length >= 3 ? median(normalRuns.map(r => r.gap)) : (App.cls.easyRef || 360);
+  const localCache = new Map();
+  const refForDate = ms => {
+    const k = Math.floor(ms / (30 * DAY));
+    if (!localCache.has(k)) {
+      const center = (k + 0.5) * 30 * DAY;
+      const pool = normalRuns.filter(x => Math.abs(x.start - center) <= 90 * DAY);
+      localCache.set(k, pool.length >= 3 ? median(pool.map(x => x.gap)) : globalRef);
+    }
+    return localCache.get(k);
+  };
+
+  const excludeIds = new Set(App.walks.map(r => r.id));
+
+  // Purge/sanitize individual run PBs (r.pb)
+  for (const r of App.train) {
+    if (!r.pb) continue;
+    const ref = Math.min(globalRef, refForDate(r.start));
+    const runPace = r.gap || (r.m && r.dur ? r.dur / (r.m / 1000) : ref);
+    for (const k in r.pb) {
+      const m = +k;
+      const sec = r.pb[k];
+      const pace = sec / (m / 1000);
+      if (pace < wrPaceFloor(m) || pace < ref * effortMinRatio(m) || (runPace > 0 && pace < runPace * 0.65)) {
+        delete r.pb[k];
+      }
+    }
+  }
+
+  // Validate and purge App.best
+  const recoverBest = (m, excludeRunId) => {
+    let bestSec = Infinity, bestRun = null;
+    for (const r of App.train) {
+      if (excludeRunId && r.id === excludeRunId) continue;
+      if (r.pb && r.pb[m] && r.pb[m] < bestSec) {
+        bestSec = r.pb[m];
+        bestRun = r;
+      }
+    }
+    if (bestRun) {
+      App.best[m] = { sec: bestSec, date: bestRun.start, runId: bestRun.id, method: 'split', indoor: bestRun.indoor };
+      return true;
+    }
+    delete App.best[m];
+    return false;
+  };
+
+  for (const mStr in App.best) {
+    const m = +mStr;
+    const b = App.best[m];
+    if (!b) continue;
+    const ref = Math.min(globalRef, refForDate(b.date));
+    const pace = b.sec / (m / 1000);
+    const hostRun = App.runs.find(r => r.id === b.runId);
+    const hostPace = hostRun && hostRun.gap ? hostRun.gap : (hostRun && hostRun.m && hostRun.dur ? hostRun.dur / (hostRun.m / 1000) : 0);
+    const isBogus = excludeIds.has(b.runId) ||
+                    pace < wrPaceFloor(m) ||
+                    pace < ref * effortMinRatio(m) ||
+                    (b.method === 'split' && hostPace > 0 && pace < hostPace * 0.65);
+    if (isBogus) {
+      const badRunId = b.runId;
+      const badRun = App.runs.find(r => r.id === badRunId);
+      if (badRun && badRun.pb) delete badRun.pb[m];
+      recoverBest(m, badRunId);
+    }
+  }
+
+  // Cross-distance physical monotonicity & VDOT sanity check
+  // 1. Time monotonicity: a longer distance cannot take less time than a shorter distance.
+  // 2. Outlier VDOT: an isolated effort cannot spike far above the athlete's corroborated fitness.
+  const targetsAsc = TARGETS.slice().sort((a, b) => a.m - b.m);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const haveVdots = [];
+    for (const t of targetsAsc) {
+      if (App.best[t.m]) haveVdots.push(vdotFrom(t.m, App.best[t.m].sec));
+    }
+    const medVdot = haveVdots.length ? median(haveVdots) : 40;
+
+    for (let i = 0; i < targetsAsc.length; i++) {
+      const t1 = targetsAsc[i];
+      const b1 = App.best[t1.m];
+      if (!b1) continue;
+      const v1 = vdotFrom(t1.m, b1.sec);
+
+      // Rule 1: Extreme VDOT outlier vs median of recorded efforts
+      if (haveVdots.length >= 3 && v1 > medVdot + 7.0) {
+        const badRunId = b1.runId;
+        const badRun = App.runs.find(r => r.id === badRunId);
+        if (badRun && badRun.pb) delete badRun.pb[t1.m];
+        recoverBest(t1.m, badRunId);
+        changed = true;
+        break;
+      }
+
+      // Rule 2: Time monotonicity (longer distance cannot take <= time than shorter distance)
+      for (let j = i + 1; j < targetsAsc.length; j++) {
+        const t2 = targetsAsc[j];
+        const b2 = App.best[t2.m];
+        if (!b2) continue;
+        if (b2.sec <= b1.sec) {
+          const badRunId = b2.runId;
+          const badRun = App.runs.find(r => r.id === badRunId);
+          if (badRun && badRun.pb) delete badRun.pb[t2.m];
+          recoverBest(t2.m, badRunId);
+          changed = true;
+          break;
+        }
+      }
+      if (changed) break;
+    }
+  }
+  fillBestEffortsFromAverages(App.train, App.best);
+
   const st = loadSettings();
   App.fit = buildFitness(App.train, App.best, {
-    useIndoor: perfIndoor,
+    useIndoor: typeof perfIndoor !== 'undefined' ? perfIndoor : false,
     hr: App.cls.hr, easyRef: App.cls.easyRef,
     muted: st.mutedEfforts || {},
     race: st.race || null
@@ -250,6 +369,7 @@ async function boot() {
     App.runs = saved.runs; App.other = saved.other || []; App.best = saved.best || {}; App.meta = saved.meta || {};
     try { App.routes = (await idbGet('routes')) || []; } catch (e) { App.routes = []; }
     recompute();
+    idbPut('data', { runs: App.runs, other: App.other, best: App.best, meta: App.meta, v: 1 }).catch(() => {});
     App.ready = true;
     if (s.coach) App.coachCfg = s.coach;
     go('overview');

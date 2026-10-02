@@ -76,6 +76,32 @@ const sum = a => a.reduce((x, y) => x + y, 0);
 const mean = a => a.length ? sum(a) / a.length : 0;
 function median(a) { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); const i = s.length >> 1; return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; }
 
+/* Absolute world record pace floor (sec/km) with margin for human limits */
+function wrPaceFloor(m) {
+  if (m >= 40000) return 170;  // Marathon WR ~171.5 s/km (2:00:35)
+  if (m >= 28000) return 166;  // 30K WR ~173 s/km
+  if (m >= 20000) return 162;  // HM WR ~163.6 s/km (57:31)
+  if (m >= 14000) return 160;  // 15K WR ~164 s/km
+  if (m >= 9500)  return 156;  // 10K WR ~157 s/km (26:11)
+  if (m >= 4500)  return 150;  // 5K WR ~151 s/km (12:35)
+  if (m >= 2800)  return 144;  // 3K WR ~146 s/km (7:17)
+  if (m >= 1500)  return 137;  // 1 mi WR ~138.6 s/km (3:43.13)
+  return 130;                  // 1K WR ~132 s/km (2:11.96)
+}
+
+/* Minimum plausible pace ratio relative to athlete's typical pace (sec/km) */
+function effortMinRatio(m) {
+  if (m >= 40000) return 0.77;
+  if (m >= 28000) return 0.74;
+  if (m >= 20000) return 0.71;
+  if (m >= 14000) return 0.68;
+  if (m >= 9500)  return 0.65;
+  if (m >= 4500)  return 0.62;
+  if (m >= 2800)  return 0.61;
+  if (m >= 1500)  return 0.60;
+  return 0.56;
+}
+
 /* ---- persistence: settings in localStorage, runs in IndexedDB ---- */
 const LS = 'ns.settings.v1';
 function loadSettings() {

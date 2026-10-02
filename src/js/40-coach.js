@@ -24,7 +24,7 @@ const LONG = {
   '5K':  { want: 13000, ceiling: 16000, minCap: 90,  repeats: 2, share: 0.35 },
   '10K': { want: 16000, ceiling: 20000, minCap: 105, repeats: 3, share: 0.38 },
   'HM':  { want: 24000, ceiling: 28000, minCap: 150, repeats: 3, share: 0.45 },
-  'FM':  { want: 32000, ceiling: 35000, minCap: 195, repeats: 4, share: 0.52 }
+  'FM':  { want: 32000, ceiling: 35000, minCap: 210, repeats: 4, share: 0.52 }
 };
 
 const RACES = {
@@ -93,7 +93,7 @@ function buildPlan(cfg, fit, runs) {
   const timeCapM = (L.minCap * 60) / ePace * 1000;        // what minCap minutes buys
   let longPeak = Math.min(L.want, L.ceiling);
   let timeCapped = false;
-  if (timeCapM < longPeak) { longPeak = Math.max(timeCapM, L.want * 0.80); timeCapped = true; }
+  if (timeCapM < longPeak) { longPeak = Math.max(timeCapM, L.want * 0.85); timeCapped = true; }
   // someone already running big weeks can go a little past the default
   longPeak = Math.min(L.ceiling, Math.max(longPeak, peakVol * 0.34));
 
@@ -196,6 +196,12 @@ function buildPlan(cfg, fit, runs) {
          'every metric here. From about 90 minutes take 30–60 g of carbohydrate an hour, and on the two or three dress-rehearsal ' +
          'long runs take exactly what you plan to take on race day, at the same intervals. Pace on a properly fuelled long run is ' +
          'usually 10–20 s/' + uName() + ' quicker for the same effort.'
+    });
+    if (peakLong < 29000) advice.push({
+      k: 'warn', t: 'Peak long run is under ' + Math.round(toU(29000)) + ' ' + uName(),
+      d: 'Most marathon plans put the peak long run at ' + Math.round(toU(29000)) + '–' + Math.round(toU(32000)) + ' ' + uName() + '. At ' +
+         Math.round(toU(peakLong)) + ' ' + uName() + ', the last ' + Math.round(toU(42195 - peakLong)) + '+ ' + uName() +
+         ' of the race will be unfamiliar territory. If you can extend the block or add another running day, the plan can schedule longer runs.'
     });
   }
   if (race.m >= 21000 && race.m < 42000 && peakLong < 18000) advice.push({

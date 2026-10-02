@@ -54,6 +54,37 @@ function walkLike(r, hr) {
   return false;
 }
 
+/* --------------------------------------------------- GPS anomaly detection */
+/* A run recorded on a moving vehicle (cruise ship, train, car) picks up the
+   vehicle's speed as GPS distance, producing a pace that is physically
+   impossible for this athlete. Unlike walk detection (which catches the slow
+   end), this catches the fast end by comparing against the athlete's own
+   established pace distribution. */
+function bogusRun(r, refPace, hr) {
+  var gp = r.gap;
+  if (!gp || !r.m || r.m < 500) return false;
+
+  var ratio = gp / refPace;                    // <1 = faster than reference
+
+  /* Absolute world record floors across all distances */
+  if (gp < wrPaceFloor(r.m)) return true;
+
+  /* Relative to this athlete: faster than physiological limit */
+  if (ratio < effortMinRatio(r.m)) return true;
+
+  /* Fast pace + low heart rate = GPS drift on a moving platform. A genuine
+     effort at 70% of easy pace would drive HR well above 85% of max. If
+     the athlete is cruising at under 72% max HR, they are not running that
+     fast — the ship is. */
+  if (ratio < 0.70 && hr.max && r.hrAvg && r.hrAvg / hr.max < 0.72) return true;
+
+  /* Long runs at implausible pace with moderate HR. Nobody holds 75% of
+     their easy pace for a half-marathon distance at 78% max HR — the
+     heart would have to be much higher to sustain that speed. */
+  if (ratio < 0.75 && r.m >= 15000 && hr.max && r.hrAvg && r.hrAvg / hr.max < 0.78) return true;
+
+  return false;
+}
 /* --------------------------------------------------------- classification */
 const RUN_KINDS = {
   race:      { label: 'Race / time trial', pill: 'clay',  hard: true,  short: 'race' },
@@ -99,10 +130,37 @@ function easyReference(runs, atMs, windowD) {
 
 function classifyRuns(runs) {
   const hr = hrScale(runs);
-  for (const r of runs) { r.gap = runGap(r); r.kind = null; }
+  for (const r of runs) { r.gap = runGap(r); r.kind = null; r.bogus = false; }
 
   // walks first — they must not pollute the easy reference
   for (const r of runs) if (walkLike(r, hr)) r.kind = 'walk';
+
+  /* GPS-inflated runs next — they are too fast, not too slow.
+     Two references: a global median (robust against any local cluster of bogus
+     data) and a LOCAL median (±90-day window, so improving fitness is not
+     penalised). A run only needs to be plausible against the faster of the two.
+     This means a runner who improved from 7:00/km to 4:30/km over two years is
+     judged by their current form, while a cruise-ship cluster cannot hide
+     behind a local window it dominates. */
+  const normalRuns = runs.filter(function(r) { return r.kind !== 'walk' && r.gap && r.m >= 2000; });
+  if (normalRuns.length >= 5) {
+    const globalRef = median(normalRuns.map(function(r) { return r.gap; }));
+    const localCache = new Map();
+    var localRefFor = function(ms) {
+      var k = Math.floor(ms / (30 * DAY));
+      if (!localCache.has(k)) {
+        var center = (k + 0.5) * 30 * DAY;
+        var pool = normalRuns.filter(function(x) { return Math.abs(x.start - center) <= 90 * DAY; });
+        localCache.set(k, pool.length >= 5 ? median(pool.map(function(x) { return x.gap; })) : globalRef);
+      }
+      return localCache.get(k);
+    };
+    for (const r of runs) {
+      if (r.kind) continue;
+      var refPace = Math.min(globalRef, localRefFor(r.start));
+      if (bogusRun(r, refPace, hr)) { r.kind = 'walk'; r.bogus = true; }
+    }
+  }
 
   const dists = runs.filter(r => r.kind !== 'walk').map(r => r.m).sort((a, b) => a - b);
   const medDist = dists.length ? median(dists) : 8000;

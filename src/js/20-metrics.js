@@ -187,9 +187,16 @@ function buildFitness(runs, best, opts) {
      Fitness is not lost at the same rate it is gained. Nothing is discounted
      for the first six weeks; after that roughly one VDOT point per ten weeks,
      bounded, so a genuine race from last spring still counts for something. */
+  const longCands = cands.filter(c => c.m >= 3000);
+  const maxLongVdot = longCands.length ? Math.max.apply(null, longCands.map(c => c.vdot)) : null;
   for (const c of cands) {
     c.stale = clamp((c.ageD - 42) / 70, 0, 4.5);
-    c.est = c.vdot - c.stale;
+    let effVdot = c.vdot;
+    // An isolated sub-3K effort cannot anchor an endurance model at a VDOT far above longer efforts
+    if (maxLongVdot !== null && c.m < 3000 && !c.entered && effVdot > maxLongVdot + 4.5) {
+      effVdot = maxLongVdot + 4.5;
+    }
+    c.est = effVdot - c.stale;
     // an effort we are confident was maximal is trusted at face value; a
     // sub-maximal one is still a floor, so it can still win if it is fast
     c.trust = 0.55 + 0.45 * c.maximal;

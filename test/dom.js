@@ -142,6 +142,17 @@ function auditView(id) {
     App.runs = keep; App.train = keep; App.best = res.best;
     App.fit = buildFitness(App.train, App.best, {}); App.load = computeLoad(App.train, App.fit.paces.T);
   });
+  check('anomalous 1K and 1-mile glitch purge', () => {
+    const keepBest = Object.assign({}, App.best);
+    App.best[1000] = { sec: 138, date: Date.now() - 5 * 86400000, runId: 1, method: 'split' };
+    App.best[1609.34] = { sec: 326.7, date: Date.now() - 5 * 86400000, runId: 1, method: 'split' };
+    recompute();
+    if (App.best[1000] && App.best[1000].sec === 138) throw new Error('2:18 1K was not purged');
+    if (App.best[1609.34] && App.best[1609.34].sec === 326.7) throw new Error('3:23 1-mile was not purged');
+    renderPerf();
+    App.best = keepBest;
+    recompute();
+  });
 
   console.log('\n--- navigation ---');
   check('go() through every view', () => {
